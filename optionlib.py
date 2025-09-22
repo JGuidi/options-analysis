@@ -26,6 +26,9 @@ class EuropeanOption():
         self.call = call
         self.option_type = int(call == True) * 2 - 1
 
+    def __add__(self, other):
+        return Portfolio([self, other])
+
     def get_option_attributes(self):
         option_type_str = "call" if self.call else "put"
         print(f"European {option_type_str} option:")
@@ -35,6 +38,23 @@ class EuropeanOption():
         print(f"- Interest rate: {self.r*100:.2f}%")
         print(f"- Volatility: {self.sigma*100:.2f}%")
         print(f"- Time to expiry: {self.T}")
+
+    def get_intrinsic_value(self, S_range=None, n=None):
+        if S_range is None:
+            d = 0.2
+            S_min = self.K * (1 - d)
+            S_max = self.K * (1 + d)
+        else:
+            S_min, S_max = S_range
+
+        if n is None:
+            n = 100
+
+        x = np.linspace(S_min, S_max, n)
+        iv = self.option_type * (x - self.K)
+        iv = np.where(iv > 0, iv, 0)
+
+        return x, iv
 
     @property
     def price(self):
@@ -60,27 +80,48 @@ class EuropeanOption():
 
     @property
     def delta(self):
-        delta = self.option_type * norm.cdf(self.option_type * d0)
-
+        delta = self.option_type * norm.cdf(self.option_type * self.d0)
         return delta
     
     @property
     def gamma(self):
-        if S is None:
-            S = self.S
-
-        d0 = self.d0(S)
-        gamma = norm.pdf(d0) / (S * self.sigma * np.sqrt(self.T))
-
+        gamma = norm.pdf(self.d0) / (S * self.sigma * np.sqrt(self.T))
         return gamma
     
     @property
     def vega(self):
-        if S is None:
-            S = self.S
-
-        d0 = self.d0(S)
-        vega = S * norm.pdf(d0) * np.sqrt(T)
-
+        vega = S * norm.pdf(self.d0) * np.sqrt(T)
         return vega
 
+
+class Portfolio():
+
+    def __init__(self, options):
+        self.options = options
+
+    def __add__(self, other):
+        if isinstance(other, EuropeanOption):
+            return self.options.append(other)
+        elif isinstance(other, Portfolio):
+            return self.options.extend(other.options)
+
+    def get_intrinsic_value(self, S_range=None, n=None):
+        if S_range is None:
+            d = 0.2
+            strikes = [opt.K for opt in self.options]
+            k_min = np.min(strikes)
+            k_max = np.max(strikes)
+            S_min = k_min * (1 - d)
+            S_max = k_max * (1 + d)
+            S_range = (S_min, S_max)
+
+        if n is None:
+            n = 100
+
+        x = np.linspace(S_min, S_max, n)
+        iv = np.zeros_like(x)
+        for opt in self.options:
+            _, opt_iv = opt.get_intrinsic_value(S_range=S_range, n=n)
+            iv += opt_iv
+
+        return x, iv
